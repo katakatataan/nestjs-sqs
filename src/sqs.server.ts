@@ -20,7 +20,7 @@ export class SqsServer extends Server implements CustomTransportStrategy {
     this.initializeDeserializer(options);
   }
 
-  public async listen(callback: (error?: Error, info?: unknown[]) => void): Promise<void> {
+  public listen(callback: (error?: Error, info?: unknown[]) => void): void {
     const { producerUrl, ...options } = this.options;
 
     const handlers: Promise<Consumer>[] = [];
@@ -52,7 +52,7 @@ export class SqsServer extends Server implements CustomTransportStrategy {
       );
     }
 
-    await Promise.all(handlers)
+    Promise.all(handlers)
       .then((consumers: Consumer[]): void => {
         this.consumers = consumers;
         callback(undefined, consumers);
@@ -74,7 +74,7 @@ export class SqsServer extends Server implements CustomTransportStrategy {
 
   public handleMessage(queueUrl: string): (message: SQSMessage) => Promise<void> {
     return async (message: SQSMessage): Promise<void> => {
-      const { data, id } = (await this.deserializer.deserialize(message)) as IncomingRequest;
+      const data = (await this.deserializer.deserialize(message)) as IncomingRequest;
 
       const handler = this.getHandlerByPattern(queueUrl);
 
@@ -82,14 +82,7 @@ export class SqsServer extends Server implements CustomTransportStrategy {
         return;
       }
 
-      const response$ = this.transformToObservable(await handler(data));
-      this.send(response$, paket => {
-        const serializedPacket = this.serializer.serialize({
-          id,
-          ...paket,
-        });
-        return from(this.producer.send(serializedPacket));
-      });
+      await handler(data)
       return Promise.resolve();
     };
   }
