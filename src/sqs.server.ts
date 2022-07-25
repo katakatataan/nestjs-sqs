@@ -1,6 +1,5 @@
 import { Injectable } from "@nestjs/common";
 import { CustomTransportStrategy, IncomingRequest, Server } from "@nestjs/microservices";
-import { NO_MESSAGE_HANDLER } from "@nestjs/microservices/constants";
 import { Consumer, SQSMessage } from "sqs-consumer";
 import { Producer } from "sqs-producer";
 import { from } from "rxjs";
@@ -11,7 +10,7 @@ import { SqsDeserializer } from "./sqs.deserializer";
 
 @Injectable()
 export class SqsServer extends Server implements CustomTransportStrategy {
-  private consumer: Consumer;
+  private consumers: Consumer[];
   private producer: Producer;
 
   constructor(protected readonly options: ISqsServerOptions["options"]) {
@@ -21,67 +20,84 @@ export class SqsServer extends Server implements CustomTransportStrategy {
     this.initializeDeserializer(options);
   }
 
-  public createClient(): void {
-    const { consumerUrl, producerUrl, ...options } = this.options;
+  public async listen(callback: (error?: Error, info?: unknown[]) => void): Promise<void> {
+    const { producerUrl, ...options } = this.options;
 
-    this.consumer = Consumer.create({
-      ...options,
-      queueUrl: consumerUrl,
-      handleMessage: this.handleMessage.bind(this),
-    });
+    const handlers: Promise<Consumer>[] = [];
 
-    this.consumer.on("error", err => {
-      this.logger.error(err.message);
-    });
+    for (const subscriptionName of this.messageHandlers.keys()) {
+      handlers.push(
+        new Promise(async (resolve) => {
+          const consumer = Consumer.create({
+            ...options,
+            queueUrl: subscriptionName,
+            handleMessage: await this.handleMessage(subscriptionName),
+          });
 
-    this.consumer.on("processing_error", err => {
-      this.logger.error(err.message);
-    });
+          consumer.on("error", err => {
+            this.logger.error(err.message);
+          });
 
-    this.consumer.on("timeout_error", err => {
-      this.logger.error(err.message);
-    });
+          consumer.on("processing_error", err => {
+            this.logger.error(err.message);
+          });
 
-    this.consumer.start();
+          consumer.on("timeout_error", err => {
+            this.logger.error(err.message);
+          });
+
+          consumer.start();
+          return resolve(consumer);
+        }),
+      );
+    }
+
+    await Promise.all(handlers)
+      .then((consumers: Consumer[]): void => {
+        this.consumers = consumers;
+        callback(undefined, consumers);
+      })
+      .catch((err: Error): void => {
+        callback(err);
+      });
 
     this.producer = Producer.create({
       ...options,
       queueUrl: producerUrl,
     });
-  }
-
-  public listen(callback: () => void): void {
-    this.createClient();
     callback();
   }
 
-  public async handleMessage(message: SQSMessage): Promise<void> {
-    const { pattern, data, id } = (await this.deserializer.deserialize(message)) as IncomingRequest;
+  public async handleQueue(queue: string): Promise<void> {
+    return Promise.resolve();
+  }
 
-    const handler = this.getHandlerByPattern(pattern);
+  public handleMessage(queueUrl: string): (message: SQSMessage) => Promise<void> {
+    return async (message: SQSMessage): Promise<void> => {
+      const { data, id } = (await this.deserializer.deserialize(message)) as IncomingRequest;
 
-    if (!handler) {
-      const serializedPacket = this.serializer.serialize({
-        id: data.id,
-        status: "error",
-        err: NO_MESSAGE_HANDLER,
+      const handler = this.getHandlerByPattern(queueUrl);
+
+      if (!handler) {
+        return;
+      }
+
+      const response$ = this.transformToObservable(await handler(data));
+      this.send(response$, paket => {
+        const serializedPacket = this.serializer.serialize({
+          id,
+          ...paket,
+        });
+        return from(this.producer.send(serializedPacket));
       });
-      await this.producer.send(serializedPacket);
-      return;
-    }
-
-    const response$ = this.transformToObservable(await handler(data));
-    this.send(response$, paket => {
-      const serializedPacket = this.serializer.serialize({
-        id,
-        ...paket,
-      });
-      return from(this.producer.send(serializedPacket));
-    });
+      return Promise.resolve();
+    };
   }
 
   public close(): void {
-    this.consumer.stop();
+    for (const consumer of this.consumers) {
+      consumer.stop();
+    }
   }
 
   protected initializeSerializer(options: ISqsServerOptions["options"]): void {

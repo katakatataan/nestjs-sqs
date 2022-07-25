@@ -1,11 +1,10 @@
 {
   "author": {
-    "email": "TrejGun+OpenSourse@gmail.com",
-    "name": "TrejGun",
-    "url": "https://trejgun.github.io/"
+    "email": "matsuyama@tsutaeru-hiromeru.com",
+    "name": "Matsuyama Yuki"
   },
   "bugs": {
-    "url": "https://github.com/gemunion/nestjs-sqs/issues"
+    "url": "https://github.com/katakatataan/nestjs-sqs/issues"
   },
   "dependencies": {
     "aws-sdk": "2.1181.0",
@@ -48,19 +47,16 @@
   "keywords": [],
   "license": "MIT",
   "main": "./dist/index.js",
-  "name": "@gemunion/nestjs-sqs",
+  "name": "@katakatataan/nestjs-sqs",
   "peerDependencies": {
     "@nestjs/common": "^8 || ^9.0.0",
     "@nestjs/core": "^8 || ^9.0.0",
     "@nestjs/microservices": "^8 || ^9.0.0",
     "rxjs": "^7"
   },
-  "publishConfig": {
-    "registry": "https://npm.pkg.github.com/"
-  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/gemunion/nestjs-sqs.git"
+    "url": "https://github.com/katakatataan/nestjs-sqs.git"
   },
   "scripts": {
     "build": "tsc",
